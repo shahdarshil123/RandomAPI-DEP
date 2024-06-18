@@ -90,11 +90,12 @@ services:
   webserver:
     image: apache/airflow:2.6.0-python3.9
     command: webserver
-    hostname: webserver
     volumes:
       - ./dags:/opt/airflow/dags
       - ./script/entrypoint.sh:/opt/airflow/script/entrypoint.sh
       - ./requirements.txt:/opt/airflow/requirements.txt
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
     entrypoint: ['/opt/airflow/script/entrypoint.sh']
     depends_on:
       - postgres
@@ -102,7 +103,7 @@ services:
       - LOAD_EX=n
       - EXECUTOR=Sequential
       - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
-      - AIRFLOW_WEBSERVER_SECRET_KEY=this_is_a_very_secured_key
+      - AIRFLOW__WEBSERVER__SECRET_KEY=this_is_a_very_secured_key
     logging:
       options:
         max-size: 10m
@@ -119,7 +120,6 @@ services:
   
   scheduler:
     image: apache/airflow:2.6.0-python3.9
-    hostname: scheduler
     depends_on:
       webserver:
         condition: service_healthy
@@ -127,11 +127,13 @@ services:
       - ./dags:/opt/airflow/dags
       - ./script/entrypoint.sh:/opt/airflow/script/entrypoint.sh
       - ./requirements.txt:/opt/airflow/requirements.txt
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
     environment:
       - LOAD_EX=n
       - EXECUTOR=Sequential
       - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
-      - AIRFLOW_WEBSERVER_SECRET_KEY=this_is_a_very_secured_key
+      - AIRFLOW__WEBSERVER__SECRET_KEY=this_is_a_very_secured_key
     command: bash -c "pip install -r ./requirements.txt && airflow db upgrade && airflow scheduler"
     networks:
       - confluent
@@ -151,22 +153,26 @@ services:
       - confluent
   
   spark-master:
-    image: bitnami/spark:latest
+    image: bitnami/spark:3.2.2
     command: bin/spark-class org.apache.spark.deploy.master.Master
+    environment:
+      SPARK_UI_PORT: 8080
     ports:
       - "9090:8080"
       - "7077:7077"
     networks:
       - confluent
+
+
   spark-worker:
-    image: bitnami/spark:latest
+    image: bitnami/spark:3.2.2
     command: bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
     depends_on:
       - spark-master
     environment:
       SPARK_MODE: worker
       SPARK_WORKER_CORES: 2
-      SPARK_WORKER_MEMORY: 1g
+      SPARK_WORKER_MEMORY: 2g
       SPARK_MASTER_URL: spark://spark-master:7077
     networks:
       - confluent
