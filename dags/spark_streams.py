@@ -158,7 +158,7 @@ def process():
 
 default_args = {
     'owner': 'darshil',
-    'start_date': datetime(2024, 5, 21, 11, 00)
+    'start_date': datetime(2024, 6, 17, 11, 00)
 }
 
 
