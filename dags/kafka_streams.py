@@ -62,7 +62,7 @@ def stream_data():
             continue
 
 default_args = {
-    'owner': 'darshil',
+    'owner': 'admin',
     'start_date': datetime(2024, 6, 17, 11, 00)
 }
 
