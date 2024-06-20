@@ -1,6 +1,7 @@
 from datetime import datetime
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+import uuid
 
 import json
 import requests
@@ -20,7 +21,7 @@ def get_data():
 
 def format_data(res):
     data ={}
-    # data['id'] = uuid.uuid4()
+    # data['id'] = str(uuid.uuid4())
     location = res['location']
     data['first_name'] = res['name']['first']
     data['last_name'] = res['name']['last']
