@@ -147,6 +147,9 @@ services:
       - "7077:7077"
     networks:
       - confluent
+    volumes:
+      - ./dags:/opt/spark/dags
+      - ./jars:/opt/spark
 
 
   spark-worker:
@@ -161,6 +164,9 @@ services:
       SPARK_MASTER_URL: spark://spark-master:7077
     networks:
       - confluent
+    volumes:
+      - ./dags:/opt/spark/dags
+      - ./jars:/opt/spark/jars
 
   cassandra_db:
     image: cassandra:latest

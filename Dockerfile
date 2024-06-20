@@ -21,4 +21,4 @@ RUN wget -qO- "https://dlcdn.apache.org/spark/spark-${SPARK_VERSION}/spark-${SPA
     mv /opt/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION} $SPARK_HOME
 
 USER airflow
-RUN pip install apache-airflow apache-airflow-providers-apache-spark pyspark kafka-python
+RUN pip install apache-airflow apache-airflow-providers-apache-spark pyspark kafka-python cassandra-driver
