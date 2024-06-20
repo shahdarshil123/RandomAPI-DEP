@@ -1,39 +1,97 @@
 import logging
-from datetime import datetime
-from airflow import DAG
-from airflow.operators.python import PythonOperator
+from cassandra.cluster import Cluster
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import from_json, col
 from pyspark.sql.types import StructType, StructField, StringType
-import time
+
+
+def create_keyspace(session):
+    session.execute("""
+        CREATE KEYSPACE IF NOT EXISTS spark_streams
+        WITH replication = {'class': 'SimpleStrategy', 'replication_factor': '1'};
+    """)
+
+    print("Keyspace created successfully!")
+
+
+def create_table(session):
+    session.execute("""
+    CREATE TABLE IF NOT EXISTS spark_streams.created_users (
+        id UUID PRIMARY KEY,
+        first_name TEXT,
+        last_name TEXT,
+        gender TEXT,
+        address TEXT,
+        post_code TEXT,
+        email TEXT,
+        username TEXT,
+        registered_date TEXT,
+        phone TEXT,
+        picture TEXT);
+    """)
+
+    print("Table created successfully!")
+
+
+def insert_data(session, **kwargs):
+    print("inserting data...")
+
+    user_id = kwargs.get('id')
+    first_name = kwargs.get('first_name')
+    last_name = kwargs.get('last_name')
+    gender = kwargs.get('gender')
+    address = kwargs.get('address')
+    postcode = kwargs.get('post_code')
+    email = kwargs.get('email')
+    username = kwargs.get('username')
+    dob = kwargs.get('dob')
+    registered_date = kwargs.get('registered_date')
+    phone = kwargs.get('phone')
+    picture = kwargs.get('picture')
+
+    try:
+        session.execute("""
+            INSERT INTO spark_streams.created_users(id, first_name, last_name, gender, address, 
+                post_code, email, username, dob, registered_date, phone, picture)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (user_id, first_name, last_name, gender, address,
+              postcode, email, username, dob, registered_date, phone, picture))
+        logging.info(f"Data inserted for {first_name} {last_name}")
+
+    except Exception as e:
+        logging.error(f'could not insert data due to {e}')
 
 
 def create_spark_connection():
     s_conn = None
 
-    # try:
-    s_conn = SparkSession.builder \
-        .appName('SparkDataStreaming') \
-        .config('spark.jars.packages', "org.apache.spark:spark-sql-kafka-0-10_2.12:3.2.1,org.apache.kafka:kafka-clients:3.7.0,org.apache.spark:spark-streaming-kafka-0-10-assembly_2.12:3.2.1,org.apache.commons:commons-pool2:2.8.0,org.apache.spark:spark-token-provider-kafka-0-10_2.12:3.1.2")\
-        .getOrCreate()
+    try:
+        s_conn = SparkSession.builder \
+            .appName('SparkDataStreaming') \
+            .config('spark.jars.packages', "org.apache.spark:spark-sql-kafka-0-10_2.12:3.2.1,com.datastax.spark:spark-cassandra-connector_2.13:3.4.1")\
+            .config('spark.cassandra.connection.host', 'localhost') \
+            .getOrCreate()
 
-    # s_conn.sparkContext.setLogLevel("ERROR")
-    logging.info("Spark connection created successfully!")
-    # except Exception as e:
-    #     logging.error(f"Couldn't create the spark session due to exception {e}")
+        s_conn.sparkContext.setLogLevel("ERROR")
+        logging.info("Spark connection created successfully!")
+    except Exception as e:
+        logging.error(f"Couldn't create the spark session due to exception {e}")
 
     return s_conn
 
 
 def connect_to_kafka(spark_conn):
-    # spark_df = None
-    # try:
-        # Create a spark dataframe storing the streaming data
-    spark_df = spark_conn.readStream.format('kafka').option('kafka.bootstrap.servers', 'localhost:9092').option('subscribe', 'users_created').option('startingOffsets', 'earliest').load()
-    print(spark_df)
-    logging.info("kafka dataframe created successfully")
-    # except Exception as e:
-        # logging.warning(f"kafka dataframe could not be created because: {e}")
+    spark_df = None
+    try:
+        spark_df = spark_conn.readStream \
+            .format('kafka') \
+            .option('kafka.bootstrap.servers', 'localhost:9092') \
+            .option('subscribe', 'users_created') \
+            .option('startingOffsets', 'earliest') \
+            .load()
+        logging.info("kafka dataframe created successfully")
+    except Exception as e:
+        logging.warning(f"kafka dataframe could not be created because: {e}")
 
     return spark_df
 
@@ -50,13 +108,6 @@ def create_cassandra_connection():
         logging.error(f"Could not create cassandra connection due to {e}")
         return None
 
-def foreach_batch_function(batch_df, batch_id):
-    # Print the batch id
-    print(f"Batch ID: {batch_id}")
-
-    # Iterate over each row in the batch DataFrame
-    for row in batch_df.collect():
-        print(row)
 
 def create_selection_df_from_kafka(spark_df):
     schema = StructType([
@@ -73,51 +124,31 @@ def create_selection_df_from_kafka(spark_df):
         StructField("picture", StringType(), False)
     ])
 
-    cast_df = spark_df.selectExpr("CAST(value AS STRING)") \
+    sel = spark_df.selectExpr("CAST(value AS STRING)") \
         .select(from_json(col('value'), schema).alias('data')).select("data.*")
-    print("Casting completed")
-    query = cast_df.writeStream.format("console").start()
-    query.awaitTermination()
-    # time.sleep(10)
-    # df.stop()
+    print(sel)
 
-    # query.awaitTermination(500)
-    # print(sel.show(5))
-
-    return cast_df
+    return sel
 
 
-
-def process():
-
+if __name__ == "__main__":
+    # create spark connection
     spark_conn = create_spark_connection()
-    print("Spark Connection Type:", type(spark_conn))
 
     if spark_conn is not None:
         # connect to kafka with spark connection
         spark_df = connect_to_kafka(spark_conn)
-        # print("Spark DataFrame type: ", type(spark_df))
-        create_selection_df_from_kafka(spark_df)
-        # df.show()
-        # query = selection_df.writeStream.format("console").start()
-        # query.awaitTermination()
+        selection_df = create_selection_df_from_kafka(spark_df)
+        session = create_cassandra_connection()
 
-if __name__ == "__main__":
-    process()
+        if session is not None:
+            create_keyspace(session)
+            create_table(session)
 
+            logging.info("Streaming is being started...")
 
-default_args = {
-    'owner': 'admin',
-    'start_date': datetime(2024, 6, 17, 11, 00)
-}
+            streaming_query = (selection_df.writeStream.format("console")
+                               .option('checkpointLocation', '/tmp/checkpoint')
+                               .start())
 
-
-with DAG('kafka-streams',
-         default_args=default_args,
-         schedule_interval='@daily',
-         catchup=False) as dag:
-
-    streaming_task = PythonOperator(
-        task_id='stream_data_from_kafka',
-        python_callable=process
-    )
+            streaming_query.awaitTermination()
